@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interview</title>
+<style>
+:root{--b:#16a34a;--line:#e5e7eb;--mut:#6b7280;--red:#dc2626}
+*{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f6f7f9;color:#111827}
+.wrap{max-width:620px;margin:0 auto;padding:16px}
+.head{display:flex;align-items:center;gap:10px;margin:6px 0 14px}.head img{height:40px;max-width:160px;object-fit:contain}.head b{font-size:17px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+.btn{font:inherit;border:1px solid var(--line);background:#fff;border-radius:10px;padding:12px 18px;cursor:pointer;width:100%;margin-top:10px}
+.btn.p{background:var(--b);border-color:var(--b);color:#fff;font-weight:600}.btn.r{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}.btn:disabled{opacity:.5;cursor:default}
+.muted{color:var(--mut)}.small{font-size:13px}.center{text-align:center}
+.q{font-size:19px;font-weight:600;margin:6px 0 14px}
+.timer{font-size:40px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.tx{background:#f9fafb;border:1px solid var(--line);border-radius:10px;padding:12px;min-height:70px;white-space:pre-wrap;font-size:14px}
+.bar{height:6px;background:#eee;border-radius:9px;overflow:hidden;margin:4px 0 14px}.bar i{display:block;height:100%;background:var(--b)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--red);margin-right:6px;animation:p 1s infinite}@keyframes p{50%{opacity:.2}}
+select{font:inherit;padding:10px;border:1px solid var(--line);border-radius:10px;width:100%;background:#fff;margin-top:4px}
+ul{padding-left:20px;margin:8px 0 14px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="card center muted">Loading…</div></div>
+<script>
+const API = 'https://script.google.com/a/primacaredental.ph/macros/s/AKfycby5GeNJv4-o3kHadlhPDYjutf0SHiio-3VdwHb_AxpEKxvtaG4M0CfiZx5Aqw6lqbCbpA/exec;
+
+const K = new URLSearchParams(location.search).get('k') || '';
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let D = null, cur = null, lang = 'en-PH', stream = null, mr = null, sr = null, chunks = [], mime = '', blob = null;
+let recording = false, startAt = 0, tick = null, finalTx = '', interimTx = '', secs = 0, redo = {};
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function head(){ return D ? '<div class="head">' + (D.logo ? '<img src="' + D.logo + '" alt="">' : '') + '<b>' + esc(D.company) + '</b></div>' : ''; }
+function app(h){ $('app').innerHTML = head() + h; window.scrollTo(0, 0); }
+function msgCard(icon, title, text){ app('<div class="card center"><div style="font-size:44px">' + icon + '</div><h2>' + esc(title) + '</h2><div class="muted">' + esc(text) + '</div></div>'); }
+async function api(body){
+  let r, j;
+  try { r = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ k: K }, body)) }); }
+  catch (e) { throw new Error('Cannot connect. Please check your internet connection and try again.'); }
+  try { j = await r.json(); } catch (e) { throw new Error('The interview service is not reachable right now. Please try again later or contact our HR team.'); }
+  if (!j.ok) throw new Error(j.error || 'Something went wrong.');
+  return j.data;
+}
+async function load(){
+  if (!K) return msgCard('🔗', 'Link not valid', 'Please open the interview link from your email.');
+  try { D = await api({ action: 'get' }); } catch (e) { return msgCard('🔗', 'Cannot open the interview', e.message); }
+  if (/^#[0-9a-f]{6}$/i.test(D.color || '')) document.documentElement.style.setProperty('--b', D.color);
+  document.title = 'Interview · ' + D.company;
+  if (D.done) return msgCard('✅', 'Interview already submitted', 'Thank you! Our HR team will contact you about the next steps.');
+  welcome();
+}
+function welcome(){
+  const n = D.questions.length, left = D.questions.filter(q => !q.answered).length, m = D.maxSec >= 120 ? (D.maxSec / 60) + ' minutes' : D.maxSec + ' seconds';
+  app('<div class="card"><h2 style="margin-top:0">Hi ' + esc(D.name) + '!</h2><div>Audio interview for <b>' + esc(D.job) + '</b></div><ul class="small">' +
+    '<li>' + n + ' question' + (n > 1 ? 's' : '') + '. You answer each one by speaking.</li>' +
+    '<li>Up to ' + m + ' per answer. You can record each answer again once.</li>' +
+    '<li>Please finish on or before <b>' + esc(D.due) + '</b>.</li>' +
+    '<li>Find a quiet place. Google Chrome works best.</li>' +
+    (left < n ? '<li><b>You already answered ' + (n - left) + '. You will continue where you stopped.</b></li>' : '') + '</ul>' +
+    '<label class="small muted">Language you will answer in</label><select id="lg"><option value="en-PH">English</option><option value="fil-PH">Filipino / Tagalog</option></select>' +
+    (SR ? '' : '<div class="small" style="margin-top:10px;background:#fef3c7;border-radius:10px;padding:10px">This browser cannot make a written transcript. Your voice recording will still be sent. For the best result, open this link in Google Chrome.</div>') +
+    '<div class="small muted" style="margin-top:10px">Your answers are recorded and shared only with our HR team, as explained in our privacy notice.</div>' +
+    '<button class="btn p" id="go" onclick="start()">Allow microphone and start</button></div>');
+}
+async function start(){
+  lang = $('lg').value; $('go').disabled = true;
+  if (!window.MediaRecorder || !navigator.mediaDevices) return msgCard('⚠️', 'Browser not supported', 'Please open this link in Google Chrome.');
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { $('go').disabled = false; return alert('We could not use your microphone. Please allow microphone access for this site in your browser settings, then try again.'); }
+  mime = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported(t)) || '';
+  next();
+}
+function next(){
+  cur = D.questions.find(q => !q.answered);
+  if (!cur) return finish();
+  finalTx = interimTx = ''; blob = null; secs = 0;
+  const n = D.questions.length, done = D.questions.filter(q => q.answered).length;
+  app('<div class="card"><div class="small muted">Question ' + cur.no + ' of ' + n + '</div><div class="bar"><i style="width:' + Math.round(done / n * 100) + '%"></i></div>' +
+    '<div class="q">' + esc(cur.q) + '</div><div id="zone"><div class="small muted center">Take a moment to think. Press the button when you are ready to speak.</div>' +
+    '<button class="btn p" onclick="rec()">🎙️ Start answering</button></div></div>');
+}
+function fmt(s){ s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function rec(){
+  chunks = []; finalTx = interimTx = '';
+  try { mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); } catch (e) { mr = new MediaRecorder(stream); }
+  mr.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  mr.onstop = review;
+  mr.start(1000); recording = true; startAt = Date.now();
+  srStart();
+  $('zone').innerHTML = '<div class="timer" id="tm">' + fmt(D.maxSec) + '</div><div class="center small" style="margin-bottom:8px"><span class="dot"></span>Recording…</div>' +
+    '<div class="tx" id="tx">' + (SR ? 'Your words will appear here…' : 'Recording your voice…') + '</div><button class="btn r" onclick="stop()">■ Stop and review</button>';
+  tick = setInterval(() => { const el = (Date.now() - startAt) / 1000, t = $('tm'); if (t) t.textContent = fmt(D.maxSec - el); if (el >= D.maxSec) stop(); }, 250);
+}
+function srStart(){
+  if (!SR) return;
+  sr = new SR(); sr.lang = lang; sr.continuous = true; sr.interimResults = true;
+  sr.onresult = e => {
+    interimTx = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) finalTx += r[0].transcript.trim() + ' '; else interimTx += r[0].transcript; }
+    const b = $('tx'); if (b) b.textContent = (finalTx + interimTx).trim() || '…';
+  };
+  sr.onend = () => { if (recording) { try { sr.start(); } catch (x) {} } };
+  sr.onerror = () => {};
+  try { sr.start(); } catch (x) {}
+}
+function stop(){
+  if (!recording) return;
+  recording = false; clearInterval(tick);
+  secs = Math.round((Date.now() - startAt) / 1000);
+  try { if (sr) sr.stop(); } catch (x) {}
+  try { mr.stop(); } catch (x) { review(); }
+}
+function review(){
+  blob = new Blob(chunks, { type: (mr && mr.mimeType) || mime || 'audio/webm' });
+  const url = URL.createObjectURL(blob), can = !redo[cur.no], short = secs < 3;
+  $('zone').innerHTML = '<div class="small muted">Listen to your answer:</div><audio controls src="' + url + '" style="width:100%;margin:6px 0 10px"></audio>' +
+    (SR ? '<div class="small muted">What we heard:</div><div class="tx" id="tx">' + (esc((finalTx + interimTx).trim()) || '…') + '</div>' : '') +
+    (short ? '<div class="small" style="color:var(--red);margin-top:8px">This answer is very short. Please record again.</div>' : '') +
+    '<button class="btn p" id="sb" onclick="submitAns()"' + (short ? ' disabled' : '') + '>Submit answer</button>' +
+    (can || short ? '<button class="btn" onclick="again()">↻ Record again' + (can && !short ? ' (1 try left)' : '') + '</button>' : '');
+}
+function again(){ if (secs >= 3) redo[cur.no] = 1; rec(); }
+async function submitAns(){
+  const b = $('sb'); b.disabled = true; b.textContent = 'Uploading… please wait';
+  try {
+    const data = await new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = () => no(new Error('Could not read the recording.')); r.readAsDataURL(blob); });
+    await api({ action: 'answer', no: cur.no, audio: data, mime: blob.type, transcript: (finalTx + interimTx).trim(), seconds: secs, lang: lang });
+    cur.answered = true; next();
+  } catch (e) { alert(e.message); const x = $('sb'); if (x) { x.disabled = false; x.textContent = 'Submit answer'; } }
+}
+async function finish(){
+  app('<div class="card center"><div style="font-size:40px">⏳</div><h3>Submitting your interview…</h3></div>');
+  try {
+    await api({ action: 'finish' });
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    msgCard('✅', 'Thank you, ' + D.name + '!', 'Your interview was submitted. Our HR team will review it and contact you about the next steps. You can close this page.');
+  } catch (e) { app('<div class="card center"><h3>Almost done</h3><div class="muted">' + esc(e.message) + '</div><button class="btn p" onclick="finish()">Try again</button></div>'); }
+}
+load();
+</script>
+</body>
+</html>
